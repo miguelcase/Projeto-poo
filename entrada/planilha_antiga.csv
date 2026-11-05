@@ -1,0 +1,33 @@
+produto,categoria,unidade,quantidade,validade,doador,data_doacao
+Arroz 5 kg,grãos,un,30,15/03/2027,Mercado Bom Preço,12/05/2026
+Feijão 1 kg,grãos,un,40,20/04/2027,Mercado Bom Preço,12/05/2026
+Óleo 900 ml,óleos,un,12,20/01/2027,Mercado Bom Preço,12/05/2026
+Macarrão 500 g,massas,un,60,10/02/2027,Maria Souza,28/05/2026
+Sardinha 125 g,enlatados,un,50,30/09/2028,Maria Souza,28/05/2026
+Açúcar 1 kg,grãos,un,25,30/06/2027,Maria Souza,28/05/2026
+Arroz 5 kg,grãos,un,abc,15/03/2027,Maria Souza,28/05/2026
+Leite 1 L,laticínios,un,12,26/10/2026,Padaria Central,03/06/2026
+Sabonete,higiene,un,60,01/12/2028,Igreja do Bairro,14/06/2026
+Papel higiênico,higiene,un,40,01/01/2030,Igreja do Bairro,14/06/2026
+Arroz 5 kg,grãos,un,20,02/05/2027,Igreja do Bairro,14/06/2026
+Feijão 1 kg,grãos,un,10,01/11/2026,Padaria Central,30/06/2026
+Café 500 g,bebidas,un,18,15/08/2027,Mercado Bom Preço,09/07/2026
+Molho de tomate,enlatados,un,36,20/03/2027,Mercado Bom Preço,09/07/2026
+Macarrão 500 g,massas,un,40,05/04/2027,João Lima,21/07/2026
+Feijão 1 kg,grãos,un,10,31/02/2027,João Lima,21/07/2026
+Leite 1 L,laticínios,un,48,30/01/2027,Mercado Bom Preço,04/08/2026
+Arroz 5 kg,grãos,un,15,10/07/2027,Escola Monte Alegre,18/08/2026
+Feijão 1 kg,grãos,un,30,15/06/2027,Escola Monte Alegre,18/08/2026
+Farinha de trigo 1 kg,grãos,un,20,12/02/2027,Escola Monte Alegre,18/08/2026
+Creme dental,higiene,un,30,01/10/2028,Escola Monte Alegre,18/08/2026
+Sardinha 125 g,enlatados,un,30,10/10/2028,Maria Souza,02/09/2026
+,grãos,un,5,10/01/2027,Maria Souza,02/09/2026
+Feijão 1 kg,grãos,un,20,12/11/2026,Padaria Central,15/09/2026
+Óleo 900 ml,óleos,un,6,18/02/2027,João Lima,22/09/2026
+Leite 1 L,laticínios,un,24,14/11/2026,Padaria Central,06/10/2026
+Leite 1 L,laticínios,un,0,30/01/2027,Padaria Central,06/10/2026
+Arroz 5 kg,grãos,un,25,20/12/2027,Mercado Bom Preço,13/10/2026
+Feijão 1 kg,grãos,un,40,22/09/2027,Mercado Bom Preço,13/10/2026
+Óleo 900 ml,óleos,un,8,2027-03-15,Mercado Bom Preço,13/10/2026
+Açúcar 1 kg,grãos,un,15,30/09/2027,Igreja do Bairro,25/10/2026
+Café 500 g,bebidas,un,12,10/10/2027,Igreja do Bairro,25/10/2026

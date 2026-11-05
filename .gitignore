@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+# dados reais têm CPF/CNPJ e telefone: não vão para o GitHub
+dados/*.json*
+saida/*
+!saida/.gitkeep
+!dados/.gitkeep
