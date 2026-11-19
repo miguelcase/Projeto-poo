@@ -6,6 +6,7 @@ import tempfile
 import unittest
 from contextlib import redirect_stdout
 from datetime import date, timedelta
+from unittest.mock import patch
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -71,6 +72,12 @@ class TestEstoque(unittest.TestCase):
             self.lote_longe.__quantidade
         self.assertEqual(self.lote_longe.get_quantidade(), 10)
 
+    def test_quantidade_inteira_para_produto_por_unidade(self):
+        with self.assertRaises(ValueError):
+            self.arroz.validar_quantidade(2.5)                 # 2,5 pacotes de arroz não existe
+        self.arroz.validar_quantidade(3.0)
+        Produto("Carne moída", "carnes", "kg").validar_quantidade(2.5)   # por kg pode fracionar
+
 
 class TestPessoas(unittest.TestCase):
     def test_pessoa_e_abstrata(self):
@@ -104,6 +111,15 @@ class TestPessoas(unittest.TestCase):
     def test_documento_mascarado(self):
         doador = Doador("Ana", "51999990000", "PF", "123.456.789-09")
         self.assertEqual(doador.documento_mascarado(), "123******09")
+
+    def test_telefone_exige_ddd_que_existe(self):
+        validos = ["51999990000", "5132221100", "11987654321"]
+        invalidos = ["0000000000", "20999990000", "5199990000", "51899990000", "5112345678"]
+        self.assertTrue(all(Pessoa.validar_telefone(t) for t in validos))
+        self.assertFalse(any(Pessoa.validar_telefone(t) for t in invalidos))
+        with self.assertRaises(ValueError):
+            Familia("Souza", "5112345678", "João", 3, "Rua A")            # cadastro novo: regra do DDD
+        Familia("Souza", "5112345678", "João", 3, "Rua A", id=900)         # vindo do JSON antigo: continua abrindo
 
 
 class TestMovimentacoes(unittest.TestCase):
@@ -144,6 +160,41 @@ class TestMovimentacoes(unittest.TestCase):
         self.assertEqual(self.estoque.cestas_possiveis(self.modelo), 2)
         self.assertEqual(self.familia.ultima_entrega(), HOJE)
         self.assertEqual(self.doador.total_doado(), 9)       # histórico da doação não diminui com a saída
+
+    def test_estorno_de_entrega_devolve_aos_mesmos_lotes(self):
+        doacao = Doacao(self.doador)
+        perto = doacao.adicionar_item(self.feijao, 1, dias(5))
+        longe = doacao.adicionar_item(self.feijao, 10, dias(200))
+        doacao.adicionar_item(self.arroz, 5, dias(100))
+        doacao.registrar(self.estoque)
+        entrega = Entrega(self.familia, self.modelo)
+        entrega.montar(self.estoque)                          # feijão: 1 do lote perto + 1 do lote longe (FEFO)
+        self.assertEqual((perto.get_quantidade(), longe.get_quantidade()), (0, 9))
+        entrega.estornar()
+        self.assertEqual((perto.get_quantidade(), longe.get_quantidade()), (1, 10))
+        self.assertEqual(self.estoque.saldo(self.arroz), 5)
+        self.assertEqual(self.familia.historico(), [])
+
+    def test_estorno_de_doacao_so_se_nada_saiu(self):
+        errada = Doacao(self.doador)
+        errada.adicionar_item(self.arroz, 50, dias(100))
+        errada.registrar(self.estoque)
+        errada.estornar(self.estoque)
+        self.assertEqual(self.estoque.saldo(self.arroz), 0)
+        self.assertEqual(self.doador.get_doacoes(), [])
+        usada = Doacao(self.doador)
+        usada.adicionar_item(self.arroz, 3, dias(100))
+        usada.adicionar_item(self.feijao, 6, dias(100))
+        usada.registrar(self.estoque)
+        Entrega(self.familia, self.modelo).montar(self.estoque)
+        with self.assertRaises(ValueError):                   # parte já foi entregue: não dá para desfazer
+            usada.estornar(self.estoque)
+        self.assertEqual(self.estoque.saldo(self.arroz), 2)
+
+    def test_dias_desde_ultima_entrega(self):
+        self.assertIsNone(self.familia.dias_desde_ultima_entrega())
+        self.familia.registrar_entrega(Entrega(self.familia, self.modelo, dias(-12)))
+        self.assertEqual(self.familia.dias_desde_ultima_entrega(), 12)   # menos de 30: o menu avisa
 
 
 class TestSistema(unittest.TestCase):
@@ -200,6 +251,43 @@ class TestSistema(unittest.TestCase):
             self.assertTrue(os.path.exists(relatorio.grafico_estoque_categoria()))
         except RuntimeError:
             self.skipTest("Matplotlib não instalado")
+
+    def test_periodo_invertido_avisa(self):
+        relatorio = Relatorio(Sistema(os.path.join("dados", "teste.json")))
+        with self.assertRaises(ValueError):
+            relatorio.doacoes_por_periodo(date(2026, 11, 30), date(2026, 11, 1))
+
+    def test_csv_recusa_quantidade_fracionada(self):
+        self.escrever_csv(["Sabonete,higiene,un,2.5,01/12/2028,Igreja do Bairro,14/06/2026",
+                           "Sabonete,higiene,un,3,01/12/2028,Igreja do Bairro,14/06/2026"])
+        sistema = Sistema(os.path.join("dados", "teste.json"))
+        self.assertEqual(self.importar(sistema), 1)
+
+    def menu(self, sistema, respostas):
+        """Roda o menu de verdade digitando as respostas (sem teclado)."""
+        with patch("builtins.input", side_effect=respostas), redirect_stdout(io.StringIO()) as tela:
+            sistema.executar(Relatorio(sistema))
+        return tela.getvalue()
+
+    def test_entrega_pelo_menu_reabre_e_estorna(self):
+        self.escrever_csv([f"{nome},x,un,10,15/03/2030,Mercado Bom Preço,12/05/2026" for nome in
+                           ["Arroz 5 kg", "Feijão 1 kg", "Óleo 900 ml", "Macarrão 500 g", "Leite 1 L",
+                            "Sardinha 125 g", "Sabonete"]])
+        arquivo = os.path.join("dados", "teste.json")
+        sistema = Sistema(arquivo)
+        self.importar(sistema)
+        familia, entrega = str(Familia._proximo_id), str(Entrega._proximo_id)
+        self.menu(sistema, ["3", "1", "Silva", "(51) 99999-0000", "Maria Silva", "4", "Rua A",
+                            "2", familia, "s", "0", "0"])
+        reaberto = Sistema(arquivo)
+        arroz = next(p for p in reaberto.get_produtos() if p.nome == "Arroz 5 kg")
+        self.assertEqual(reaberto.get_estoque().saldo(arroz), 9)
+        tela = self.menu(reaberto, ["3", "2", familia, "n", "6", entrega, "s", "0", "0"])
+        self.assertIn("[AVISO] Esta família recebeu cesta há 0 dia(s)", tela)      # 2ª cesta no mesmo dia
+        final = Sistema(arquivo)
+        arroz = next(p for p in final.get_produtos() if p.nome == "Arroz 5 kg")
+        self.assertEqual(final.get_estoque().saldo(arroz), 10)                    # voltou para o lote
+        self.assertEqual(final.get_familias()[0].historico(), [])
 
 
 if __name__ == "__main__":

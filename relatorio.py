@@ -41,6 +41,8 @@ class Relatorio:
         return linhas
 
     def doacoes_por_periodo(self, inicio: date, fim: date) -> list[list]:
+        if inicio > fim:
+            raise ValueError("A data de início é depois da data de fim.")
         linhas = [["Nº", "Data", "Doador", "Itens"]]
         total = 0.0
         for d in self.__doacoes():
