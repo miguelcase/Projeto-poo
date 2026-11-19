@@ -23,6 +23,13 @@ class Produto:
     def get_id(self) -> int:
         return self.__id
 
+    def validar_quantidade(self, qtd: float) -> None:
+        """Quantidade maior que 0 e inteira para produto contado por unidade (não existe 2,5 sabonetes)."""
+        if qtd <= 0:
+            raise ValueError("A quantidade deve ser maior que 0.")
+        if self.unidade == "un" and not float(qtd).is_integer():
+            raise ValueError(f"{self.nome} é contado por unidade: use um número inteiro.")
+
     def to_dict(self) -> dict:
         return {"id": self.__id, "nome": self.nome, "categoria": self.categoria, "unidade": self.unidade}
 
@@ -67,6 +74,12 @@ class Lote:
         self.__quantidade -= saiu
         return saiu
 
+    def devolver(self, qtd: float) -> None:
+        """Estorno de entrega: o item volta para o lote de onde saiu (nunca passa da quantidade inicial)."""
+        if qtd <= 0 or self.__quantidade + qtd > self.quantidade_inicial + 1e-9:
+            raise ValueError(f"Lote {self.__id} não pode receber {qtd:g} de volta.")
+        self.__quantidade += qtd
+
     def to_dict(self) -> dict:
         return {"id": self.__id, "produto_id": self.produto.get_id(), "quantidade": self.__quantidade,
                 "quantidade_inicial": self.quantidade_inicial, "validade": self.validade.isoformat(),
@@ -104,6 +117,10 @@ class Estoque:
 
     def adicionar_lote(self, lote: Lote) -> None:
         self.__lotes.append(lote)
+
+    def remover_lote(self, lote: Lote) -> None:
+        """Usado só no estorno de doação (o lote nunca foi usado)."""
+        self.__lotes.remove(lote)
 
     def get_lotes(self) -> list[Lote]:
         """Lotes com saldo (cópia da lista, para consulta)."""

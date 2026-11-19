@@ -9,7 +9,7 @@ from datetime import date, datetime
 
 from estoque import Estoque, Lote, ModeloCesta, Produto
 from movimentacoes import Doacao, Entrega
-from pessoas import Doador, Familia
+from pessoas import Doador, Familia, Pessoa
 from relatorio import Relatorio
 
 ARQUIVO_ERROS = os.path.join("saida", "erros_importacao.txt")
@@ -78,10 +78,13 @@ class Sistema:
         print("6. Importar planilha antiga (CSV)")
         print("0. Salvar e sair")
 
-    def __ler_entrada(self, msg: str, tipo: str = "texto", opcoes=None):
-        """Lê e valida o teclado; repete a pergunta até a resposta ser válida."""
+    def __ler_entrada(self, msg: str, tipo: str = "texto", opcoes=None, atual=None):
+        """Lê e valida o teclado; repete a pergunta até a resposta ser válida.
+        Na edição, `atual` é o valor de agora: Enter vazio mantém esse valor."""
         while True:
             resp = input(msg).strip()
+            if atual is not None and not resp:
+                return atual
             if tipo == "texto_opcional":
                 return resp
             if tipo == "escolha":
@@ -119,6 +122,30 @@ class Sistema:
                 if len(digitos) in opcoes:
                     return digitos
                 print(f"[ERRO] Digite {' ou '.join(map(str, opcoes))} dígitos.")
+            elif tipo == "telefone":
+                digitos = "".join(c for c in resp if c.isdigit())
+                if Pessoa.validar_telefone(digitos):
+                    return digitos
+                print("[ERRO] Telefone inválido: DDD + número, ex.: (51) 99999-0000 ou (51) 3222-1100.")
+
+    def __ler_quantidade(self, produto: Produto, msg: str = "Quantidade: ") -> float:
+        """Número maior que 0; inteiro se o produto é contado por unidade."""
+        while True:
+            qtd = self.__ler_entrada(msg, "numero")
+            try:
+                produto.validar_quantidade(qtd)
+                return qtd
+            except ValueError as erro:
+                print(f"[ERRO] {erro}")
+
+    @staticmethod
+    def __largura(textos, minimo: int) -> int:
+        """Largura da coluna pelo maior texto, para nomes longos não serem cortados nas tabelas."""
+        return max([minimo, *map(len, textos)]) + 2
+
+    @staticmethod
+    def __tel(tel: str) -> str:
+        return f"({tel[:2]}) {tel[2:-4]}-{tel[-4:]}" if tel else "sem telefone"
 
     def __escolher(self, itens: list, rotulo: str, permitir_novo: bool = False):
         """Pede o nº de um item da lista ('l' lista tudo; 'n' devolve None para cadastrar um novo)."""
@@ -146,16 +173,18 @@ class Sistema:
     def menu_estoque(self) -> None:
         while True:
             print("\n============== ESTOQUE ==============")
-            print(f"{'Produto':<22}{'Categ.':<12}{'Saldo':>6}  Vence em")
+            larg = self.__largura((p.nome for p in self.__produtos), 20)
+            print(f"{'Produto':<{larg}}{'Categ.':<12}{'Saldo':>6}  Vence em")
             for p in sorted(self.__produtos, key=lambda p: (p.categoria, p.nome)):
                 vence = self.__estoque.proximo_vencimento(p)
                 vence = vence.strftime("%d/%m/%Y") if vence else "-"
-                print(f"{p.nome[:21]:<22}{p.categoria[:11]:<12}{self.__estoque.saldo(p):>6g}  {vence}")
+                print(f"{p.nome:<{larg}}{p.categoria[:11]:<12}{self.__estoque.saldo(p):>6g}  {vence}")
             print("\nALERTAS DE VALIDADE")
             alertas = [(l, f"VENCIDO há {-l.dias_para_vencer()} dias", "X") for l in self.__estoque.lotes_vencidos()]
             alertas += [(l, f"vence em {l.dias_para_vencer()} dias", "!") for l in self.__estoque.lotes_a_vencer()]
+            larg_alerta = self.__largura((l.produto.nome for l, _, _ in alertas), 14)
             for lote, texto, marca in alertas:
-                print(f" [{marca}] {lote.produto.nome[:15]:<16}lote {lote.get_id():<4} {texto}")
+                print(f" [{marca}] {lote.produto.nome:<{larg_alerta}}lote {lote.get_id():<4} {texto}")
             if not alertas:
                 print(" Nenhum lote vencido ou perto de vencer.")
             n = self.__estoque.cestas_possiveis(self.__modelo_cesta)
@@ -171,9 +200,11 @@ class Sistema:
              "4": self.__descartar_vencidos}[opcao]()
 
     def __ver_lotes(self) -> None:
-        print(f"\n{'Lote':>4}  {'Produto':<22}{'Saldo':>6}  {'Validade':<11} Entrada")
-        for l in sorted(self.__estoque.get_lotes(), key=lambda l: l.validade):
-            print(f"{l.get_id():>4}  {l.produto.nome[:21]:<22}{l.get_quantidade():>6g}  "
+        lotes = sorted(self.__estoque.get_lotes(), key=lambda l: l.validade)
+        larg = self.__largura((l.produto.nome for l in lotes), 20)
+        print(f"\n{'Lote':>4}  {'Produto':<{larg}}{'Saldo':>6}  {'Validade':<11} Entrada")
+        for l in lotes:
+            print(f"{l.get_id():>4}  {l.produto.nome:<{larg}}{l.get_quantidade():>6g}  "
                   f"{l.validade.strftime('%d/%m/%Y'):<11} {l.data_entrada.strftime('%d/%m/%Y')}"
                   + ("  VENCIDO" if l.esta_vencido() else ""))
 
@@ -193,9 +224,10 @@ class Sistema:
     def menu_produtos(self) -> None:
         while True:
             print("\n============== PRODUTOS ==============")
-            print(f"{'Nº':>3}  {'Produto':<26}{'Categoria':<13}Unid.")
+            larg = self.__largura((p.nome for p in self.__produtos), 24)
+            print(f"{'Nº':>3}  {'Produto':<{larg}}{'Categoria':<13}Unid.")
             for p in sorted(self.__produtos, key=lambda p: p.get_id()):
-                print(f"{p.get_id():>3}  {p.nome[:25]:<26}{p.categoria[:12]:<13}{p.unidade}")
+                print(f"{p.get_id():>3}  {p.nome:<{larg}}{p.categoria[:12]:<13}{p.unidade}")
             print("\n1. Cadastrar  2. Editar  3. Remover  4. Renomear categoria  0. Voltar")
             opcao = self.__ler_entrada("Escolha uma opção: ", "escolha", list("01234"))
             if opcao == "0":
@@ -221,7 +253,12 @@ class Sistema:
         if not produto:
             return
         print("Deixe em branco para manter o valor atual.")
-        produto.nome = self.__ler_entrada(f"Nome [{produto.nome}]: ", "texto_opcional") or produto.nome
+        while True:
+            nome = self.__ler_entrada(f"Nome [{produto.nome}]: ", atual=produto.nome)
+            if self.__produto_por_nome(nome) in (None, produto):
+                break
+            print("[ERRO] Já existe outro produto com esse nome.")
+        produto.nome = nome
         produto.categoria = (self.__ler_entrada(f"Categoria [{produto.categoria}]: ", "texto_opcional").lower()
                              or produto.categoria)
         produto.unidade = self.__ler_entrada(f"Unidade [{produto.unidade}]: ", "texto_opcional") or produto.unidade
@@ -255,15 +292,17 @@ class Sistema:
     def menu_modelo_cesta(self) -> None:
         while True:
             print(f"\n========= MODELO: {self.__modelo_cesta.nome} =========")
-            for p, q in self.__modelo_cesta.listar_itens():
-                print(f"  {p.nome:<20} x{q:g}")
+            itens = self.__modelo_cesta.listar_itens()
+            larg = self.__largura((p.nome for p, _ in itens), 18)
+            for p, q in itens:
+                print(f"  {p.nome:<{larg}}x{q:g}")
             print("\n1. Adicionar/alterar item  2. Remover item  0. Voltar")
             opcao = self.__ler_entrada("Escolha uma opção: ", "escolha", list("012"))
             if opcao == "0":
                 return
             produto = self.__escolher(self.__produtos, "Produto")
             if produto and opcao == "1":
-                self.__modelo_cesta.adicionar_item(produto, self.__ler_entrada("Quantidade por cesta: ", "numero"))
+                self.__modelo_cesta.adicionar_item(produto, self.__ler_quantidade(produto, "Quantidade por cesta: "))
             elif produto:
                 self.__modelo_cesta.remover_item(produto)
             self.salvar()
@@ -277,7 +316,7 @@ class Sistema:
             produto = self.__escolher(self.__produtos, "Produto")
             if not produto:
                 return
-            qtd = self.__ler_entrada("Quantidade: ", "numero")
+            qtd = self.__ler_quantidade(produto)
             validade = self.__ler_validade()
             doacao.adicionar_item(produto, qtd, validade)
             if not self.__ler_entrada("Adicionar outro item? (s/n): ", "sn"):
@@ -308,7 +347,7 @@ class Sistema:
         tipo = self.__ler_entrada("Tipo (PF/PJ): ", "escolha", ["PF", "PJ"])
         documento = self.__ler_entrada("CPF (só dígitos): " if tipo == "PF" else "CNPJ (só dígitos): ",
                                        "digitos", (11,) if tipo == "PF" else (14,))
-        telefone = self.__ler_entrada("Telefone (com DDD): ", "digitos", (10, 11))
+        telefone = self.__ler_entrada("Telefone (com DDD): ", "telefone")
         doador = Doador(nome, telefone, tipo, documento)
         self.__doadores.append(doador)
         self.salvar()
@@ -319,20 +358,23 @@ class Sistema:
     def menu_familias(self) -> None:
         while True:
             print("\n====== FAMÍLIAS E ENTREGA DE CESTAS ======")
-            print(f"{'Nº':>3}  {'Família':<32}Última entrega")
+            larg = self.__largura((f.descricao() for f in self.__familias), 30)
+            print(f"{'Nº':>3}  {'Família':<{larg}}Última entrega")
             for f in self.__familias:
                 ultima = f.ultima_entrega()
-                print(f"{f.get_id():>3}  {f.descricao()[:31]:<32}{ultima.strftime('%d/%m/%Y') if ultima else 'nunca'}")
-            print("\n1. Cadastrar família  2. Registrar entrega  3. Histórico da família  0. Voltar")
-            opcao = self.__ler_entrada("Escolha uma opção: ", "escolha", list("0123"))
+                print(f"{f.get_id():>3}  {f.descricao():<{larg}}{ultima.strftime('%d/%m/%Y') if ultima else 'nunca'}")
+            print("\n1. Cadastrar família  2. Registrar entrega  3. Histórico da família")
+            print("4. Editar família     5. Remover família    6. Estornar entrega       0. Voltar")
+            opcao = self.__ler_entrada("Escolha uma opção: ", "escolha", list("0123456"))
             if opcao == "0":
                 return
-            {"1": self.cadastrar_familia, "2": self.registrar_entrega, "3": self.__historico_familia}[opcao]()
+            {"1": self.cadastrar_familia, "2": self.registrar_entrega, "3": self.__historico_familia,
+             "4": self.__editar_familia, "5": self.__remover_familia, "6": self.__estornar_entrega}[opcao]()
 
     def cadastrar_familia(self) -> Familia:
         print("\n========== CADASTRAR FAMÍLIA ==========")
         familia = Familia(self.__ler_entrada("Nome da família: "),
-                          self.__ler_entrada("Telefone (com DDD): ", "digitos", (10, 11)),
+                          self.__ler_entrada("Telefone (com DDD): ", "telefone"),
                           self.__ler_entrada("Responsável: "),
                           self.__ler_entrada("Nº de pessoas: ", "inteiro"),
                           self.__ler_entrada("Endereço: "))
@@ -348,6 +390,12 @@ class Sistema:
             return
         ultima = familia.ultima_entrega()
         print(f"  > Última entrega: {ultima.strftime('%d/%m/%Y') if ultima else 'nunca recebeu'}")
+        dias = familia.dias_desde_ultima_entrega()
+        if dias is not None and dias < 30:
+            print(f"[AVISO] Esta família recebeu cesta há {dias} dia(s), menos de 30.")
+            if not self.__ler_entrada("Entregar mesmo assim? (s/n): ", "sn"):
+                print("Entrega cancelada. Nada foi alterado.")
+                return
         print(f"Modelo: {self.__modelo_cesta.nome}")
         falta = self.__estoque.faltante(self.__modelo_cesta)
         if falta or not self.__modelo_cesta.listar_itens():
@@ -355,9 +403,10 @@ class Sistema:
                   + (", ".join(f"{p.nome} ({q:g})" for p, q in falta.items()) or "definir o modelo da cesta"))
             return
         print("Itens da cesta (regra FEFO):")
+        larg = self.__largura((p.nome for p, _ in self.__modelo_cesta.listar_itens()), 16)
         for produto, qtd in self.__modelo_cesta.listar_itens():
             for lote, usar in self.__estoque.previa_retirada(produto, qtd):
-                print(f"  {produto.nome[:17]:<18} x{usar:<3g} lote {lote.get_id():<4} vence {lote.validade.strftime('%d/%m/%Y')}")
+                print(f"  {produto.nome:<{larg}}x{usar:<3g} lote {lote.get_id():<4} vence {lote.validade.strftime('%d/%m/%Y')}")
         if not self.__ler_entrada("Confirmar entrega? (s/n): ", "sn"):
             print("Entrega cancelada. Nada foi alterado.")
             return
@@ -378,40 +427,124 @@ class Sistema:
         if not familia.historico():
             print("  Nenhuma cesta recebida ainda.")
 
+    def __editar_familia(self) -> None:
+        familia = self.__escolher(self.__familias, "Família")
+        if not familia:
+            return
+        print("Deixe em branco para manter o valor atual.")
+        familia.nome = self.__ler_entrada(f"Nome da família [{familia.nome}]: ", atual=familia.nome)
+        familia.telefone = self.__ler_entrada(f"Telefone [{self.__tel(familia.telefone)}]: ", "telefone",
+                                              atual=familia.telefone)
+        familia.responsavel = self.__ler_entrada(f"Responsável [{familia.responsavel}]: ", atual=familia.responsavel)
+        familia.num_pessoas = self.__ler_entrada(f"Nº de pessoas [{familia.num_pessoas}]: ", "inteiro",
+                                                 atual=familia.num_pessoas)
+        familia.endereco = self.__ler_entrada(f"Endereço [{familia.endereco}]: ", atual=familia.endereco)
+        self.salvar()
+        print(f"Cadastro atualizado: {familia.descricao()}")
+
+    def __remover_familia(self) -> None:
+        familia = self.__escolher(self.__familias, "Família")
+        if not familia:
+            return
+        # enxuto: quem já recebeu cesta não é apagado (o histórico aponta para a família) → anonimizar se precisar (LGPD)
+        if familia.historico():
+            print("[ERRO] Esta família tem entregas no histórico; não pode ser removida. "
+                  "Se a entrega foi lançada por engano, use Estornar entrega antes.")
+        elif self.__ler_entrada(f"Remover {familia.descricao()}? (s/n): ", "sn"):
+            self.__familias.remove(familia)
+            self.salvar()
+            print("Família removida.")
+
+    def __estornar_entrega(self) -> None:
+        print("\n========== ESTORNAR ENTREGA ==========")
+        entrega = self.__escolher([m for m in self.__historico if isinstance(m, Entrega)], "Entrega")
+        if not entrega:
+            return
+        if not entrega.get_baixas():
+            print("[ERRO] Esta entrega foi gravada sem os lotes (versão antiga); não dá para estornar.")
+            return
+        for lote, qtd in entrega.get_baixas():
+            print(f"  volta para o lote {lote.get_id():<4} {lote.produto.nome} x{qtd:g}")
+        if self.__ler_entrada("Estornar esta entrega? (s/n): ", "sn"):
+            entrega.estornar()
+            self.__historico.remove(entrega)
+            self.salvar()
+            print(f"Entrega nº {entrega.get_id()} estornada. Os itens voltaram ao estoque.")
+
     # ---------- 4. Doadores ----------
     def menu_doadores(self) -> None:
         while True:
             print("\n============== DOADORES ==============")
-            print(f"{'Nº':>3}  {'Doador':<33}{'Documento':<16}{'Doações':>7}{'Itens':>7}")
+            larg = self.__largura((d.descricao() for d in self.__doadores), 30)
+            print(f"{'Nº':>3}  {'Doador':<{larg}}{'Documento':<16}{'Doações':>7}{'Itens':>7}")
             for d in self.__doadores:
-                print(f"{d.get_id():>3}  {d.descricao()[:32]:<33}{d.documento_mascarado():<16}"
+                print(f"{d.get_id():>3}  {d.descricao():<{larg}}{d.documento_mascarado():<16}"
                       f"{len(d.get_doacoes()):>7}{d.total_doado():>7g}")
-            print("\n1. Cadastrar doador  2. Completar cadastro  3. Contatos (doadores e famílias)  0. Voltar")
-            opcao = self.__ler_entrada("Escolha uma opção: ", "escolha", list("0123"))
+            print("\n1. Cadastrar doador  2. Editar / completar cadastro  3. Contatos (doadores e famílias)")
+            print("4. Remover doador    5. Estornar doação                0. Voltar")
+            opcao = self.__ler_entrada("Escolha uma opção: ", "escolha", list("012345"))
             if opcao == "0":
                 return
-            {"1": self.cadastrar_doador, "2": self.__completar_doador, "3": self.listar_contatos}[opcao]()
+            {"1": self.cadastrar_doador, "2": self.__editar_doador, "3": self.listar_contatos,
+             "4": self.__remover_doador, "5": self.__estornar_doacao}[opcao]()
 
-    def __completar_doador(self) -> None:
+    def __editar_doador(self) -> None:
+        """Edita nome, documento e telefone; também completa o cadastro de quem veio da planilha antiga."""
         doador = self.__escolher(self.__doadores, "Doador")
         if not doador:
             return
-        tipo = self.__ler_entrada("Tipo (PF/PJ): ", "escolha", ["PF", "PJ"])
-        documento = self.__ler_entrada("CPF (só dígitos): " if tipo == "PF" else "CNPJ (só dígitos): ",
-                                       "digitos", (11,) if tipo == "PF" else (14,))
-        doador.alterar_documento(tipo, documento)
-        doador.telefone = self.__ler_entrada("Telefone (com DDD): ", "digitos", (10, 11))
+        print("Deixe em branco para manter o valor atual.")
+        doador.nome = self.__ler_entrada(f"Nome [{doador.nome}]: ", atual=doador.nome)
+        tipo = self.__ler_entrada(f"Tipo (PF/PJ) [{doador.tipo or 'não informado'}]: ", "escolha", ["PF", "PJ"],
+                                  atual=doador.tipo)
+        if tipo:
+            manter = doador.documento_mascarado() if tipo == doador.tipo else None   # trocou o tipo: documento novo
+            rotulo = ("CPF" if tipo == "PF" else "CNPJ") + (f" [{manter}]" if manter else " (só dígitos)")
+            documento = self.__ler_entrada(f"{rotulo}: ", "digitos", (11,) if tipo == "PF" else (14,), atual=manter)
+            if documento != manter:
+                doador.alterar_documento(tipo, documento)
+        doador.telefone = self.__ler_entrada(f"Telefone [{self.__tel(doador.telefone)}]: ", "telefone",
+                                             atual=doador.telefone)
         self.salvar()
         print(f"Cadastro atualizado: {doador.descricao()} | {doador.documento_mascarado()}")
+
+    def __remover_doador(self) -> None:
+        doador = self.__escolher(self.__doadores, "Doador")
+        if not doador:
+            return
+        # enxuto: quem já doou não é apagado (o histórico aponta para o doador) → anonimizar se precisar (LGPD)
+        if doador.get_doacoes():
+            print("[ERRO] Este doador tem doações no histórico; não pode ser removido. "
+                  "Se a doação foi lançada por engano, use Estornar doação antes.")
+        elif self.__ler_entrada(f"Remover {doador.descricao()}? (s/n): ", "sn"):
+            self.__doadores.remove(doador)
+            self.salvar()
+            print("Doador removido.")
+
+    def __estornar_doacao(self) -> None:
+        print("\n========== ESTORNAR DOAÇÃO ==========")
+        doacao = self.__escolher([m for m in self.__historico if isinstance(m, Doacao)], "Doação")
+        if not doacao:
+            return
+        for lote in doacao.get_lotes():
+            print(f"  sai do estoque o lote {lote.get_id():<4} {lote.produto.nome} x{lote.quantidade_inicial:g}")
+        if self.__ler_entrada("Estornar esta doação? (s/n): ", "sn"):
+            try:
+                doacao.estornar(self.__estoque)     # recusa se algum item já saiu em cesta ou foi descartado
+            except ValueError as erro:
+                print(f"[ERRO] {erro}")
+                return
+            self.__historico.remove(doacao)
+            self.salvar()
+            print(f"Doação nº {doacao.get_id()} estornada. Os lotes saíram do estoque.")
 
     def listar_contatos(self) -> None:
         """Polimorfismo: doadores e famílias são tratados como Pessoa; cada um responde descricao() do seu jeito."""
         print("\n======= CONTATOS (doadores e famílias) =======")
-        pessoas = self.__doadores + self.__familias
+        pessoas: list[Pessoa] = self.__doadores + self.__familias
+        larg = self.__largura((p.descricao() for p in pessoas), 33)
         for pessoa in pessoas:
-            tel = pessoa.telefone
-            tel = f"({tel[:2]}) {tel[2:-4]}-{tel[-4:]}" if tel else "sem telefone"
-            print(f"  {pessoa.descricao():<35}{tel}")
+            print(f"  {pessoa.descricao():<{larg}}{self.__tel(pessoa.telefone)}")
         print(f"{len(pessoas)} contato(s).")
 
     # ---------- 5. Relatórios ----------
@@ -481,6 +614,7 @@ class Sistema:
             try:
                 nome, nome_doador, qtd, validade, data_doacao = self.__ler_linha_csv(linha)
                 produto = self.__produto_por_nome(nome) or Produto(nome, linha["categoria"], linha["unidade"])
+                produto.validar_quantidade(qtd)
             except ValueError as erro:
                 originais = separador.join(v for v in linha.values() if isinstance(v, str))
                 erros.append(f"linha {leitor.line_num}: {erro} -> {originais}")
@@ -560,7 +694,9 @@ class Sistema:
                 historico.append(doacao)
             for d in dados["entregas"]:
                 itens = [(produtos[i["produto_id"]], i["quantidade"]) for i in d["itens"]]
-                entrega = Entrega(familias[d["familia_id"]], modelo, date.fromisoformat(d["data"]), d["id"], itens)
+                baixas = [(lotes[b["lote_id"]], b["quantidade"]) for b in d.get("baixas", [])]  # JSON antigo não tem
+                entrega = Entrega(familias[d["familia_id"]], modelo, date.fromisoformat(d["data"]), d["id"],
+                                  itens, baixas)
                 entrega.familia.registrar_entrega(entrega)
                 historico.append(entrega)
         except (json.JSONDecodeError, KeyError, ValueError, TypeError) as erro:

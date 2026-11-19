@@ -8,6 +8,11 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from movimentacoes import Doacao, Entrega
 
+# DDDs existentes no Brasil (Anatel)
+DDDS = {11, 12, 13, 14, 15, 16, 17, 18, 19, 21, 22, 24, 27, 28, 31, 32, 33, 34, 35, 37, 38,
+        41, 42, 43, 44, 45, 46, 47, 48, 49, 51, 53, 54, 55, 61, 62, 63, 64, 65, 66, 67, 68, 69,
+        71, 73, 74, 75, 77, 79, 81, 82, 83, 84, 85, 86, 87, 88, 89, 91, 92, 93, 94, 95, 96, 97, 98, 99}
+
 
 class Pessoa(ABC):
     """Dados comuns de Doador e Familia. Não é instanciada diretamente."""
@@ -18,8 +23,10 @@ class Pessoa(ABC):
         if not nome.strip():
             raise ValueError("O nome não pode ficar vazio.")
         telefone = "".join(c for c in telefone if c.isdigit())
-        if telefone and not Pessoa._validar_telefone(telefone):
-            raise ValueError("Telefone deve ter 10 ou 11 dígitos (com DDD).")
+        # ao carregar o JSON (id informado) só confere o tamanho: arquivo salvo antes da regra do DDD continua abrindo
+        valido = Pessoa.validar_telefone(telefone) if id is None else len(telefone) in (10, 11)
+        if telefone and not valido:
+            raise ValueError("Telefone inválido: DDD + número, ex.: (51) 99999-0000.")
         classe = type(self)   # cada subclasse tem sua própria numeração
         if id is None:
             id = classe._proximo_id
@@ -42,8 +49,11 @@ class Pessoa(ABC):
         return {"id": self.__id, "nome": self.nome, "telefone": self.telefone}
 
     @staticmethod
-    def _validar_telefone(tel: str) -> bool:
-        return tel.isdigit() and len(tel) in (10, 11)
+    def validar_telefone(tel: str) -> bool:
+        """DDD que existe; fixo (10 dígitos) começa com 2 a 5 e celular (11 dígitos) com 9."""
+        if not tel.isdigit() or len(tel) not in (10, 11) or int(tel[:2]) not in DDDS:
+            return False
+        return tel[2] == "9" if len(tel) == 11 else tel[2] in "2345"
 
 
 class Doador(Pessoa):
@@ -74,6 +84,10 @@ class Doador(Pessoa):
 
     def registrar_doacao(self, doacao: Doacao) -> None:
         self.__doacoes.append(doacao)
+
+    def remover_doacao(self, doacao: Doacao) -> None:
+        """Usado só no estorno."""
+        self.__doacoes.remove(doacao)
 
     def get_doacoes(self) -> list[Doacao]:
         return list(self.__doacoes)
@@ -112,8 +126,16 @@ class Familia(Pessoa):
     def registrar_entrega(self, entrega: Entrega) -> None:
         self.__entregas.append(entrega)
 
+    def remover_entrega(self, entrega: Entrega) -> None:
+        """Usado só no estorno."""
+        self.__entregas.remove(entrega)
+
     def ultima_entrega(self) -> date | None:
         return max((e.data for e in self.__entregas), default=None)
+
+    def dias_desde_ultima_entrega(self, hoje: date | None = None) -> int | None:
+        ultima = self.ultima_entrega()
+        return ((hoje or date.today()) - ultima).days if ultima else None
 
     def historico(self) -> list[Entrega]:
         return list(self.__entregas)
